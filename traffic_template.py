@@ -3,7 +3,8 @@
 # Template for traffic simulation
 # BH, MP 2021-11-15, latest version 2024-11-08.
 
-"""
+"""gi
+    TJAAAAAA
     This template is used as backbone for the traffic simulations.
     Its structure resembles the one of the pendulum project, that is you have:
     (a) a class containing the state of the system and its parameters
