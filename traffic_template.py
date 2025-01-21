@@ -27,7 +27,7 @@ import matplotlib
 class Cars:
     """Class for the state of a number of cars"""
 
-    def __init__(self, numCars=5, roadLength=50, v0=1, numLanes=2):
+    def __init__(self, numCars=5, roadLength=50, v0=1, numLanes=3):
         self.numCars = numCars
         self.roadLength = roadLength
         self.t = 0
@@ -35,6 +35,7 @@ class Cars:
         self.v = []
         self.c = []
         self.lanes = []
+        self.numLanes = numLanes
 
         for i in range(numCars):
             # Set the initial position for each car such that cars are evenly spaced.
@@ -92,6 +93,7 @@ class BasePropagator:
         obs.time.append(cars.t)
         obs.flowrate.append(fr)
         obs.positions.append(list(cars.x))
+        obs.lanes.append(list(cars.lanes))
 
     def timestep(self, cars, obs):
         """Virtual method: implemented by the child classes"""
@@ -228,6 +230,13 @@ class Simulation:
         plt.legend()
         plt.savefig(title + ".pdf")
         plt.show()
+
+    def getAverageFlowrate(self, propagator, numsteps = 200):
+        for it in range(numsteps):
+            propagator.propagate(self.cars, self.obs)
+
+        return sum(self.obs.flowrate)/numsteps
+
 
     # Run without displaying any animation (fast)
     def run(
