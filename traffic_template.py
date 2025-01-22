@@ -21,51 +21,101 @@ import numpy.random as rng
 import numpy as np
 from scipy.stats import sem
 
-
 import matplotlib
+
+
+class NewCar:
+    def __init__(self, x, v, c, lane, next=None, prev=None):
+        self.next = next
+        self.prev = prev
+        self.x = x
+        self.v = v
+        self.c = c
+        self.lane = lane
+
+    def change_lane(self, next, prev, overTaking: bool = True):
+        """
+        Change lane of the car
+        :param overTaking: Increases lane number if true, else decreases lane number
+        :return:
+        """
+        if overTaking:
+            self.lane += 1
+        else:
+            self.lane -= 1
+
+        self.next = next
+        self.prev = prev
+
+    def speedUp(self):
+        """
+        Increase velocity by one unit
+        :return:
+        """
+        self.v += 1
+
+    def slowDown(self):
+        """
+        Decrease velocity by one unit
+        :return:
+        """
+        self.v -= 1
+
+    def avoidCollision(self, d):
+        """
+        Collision avoidance
+        :param d: Distance to car ahead
+        :return: None
+        """
+        self.v = d - 1
+
 
 class Cars:
     """Class for the state of a number of cars"""
 
-    def __init__(self, numCars=5, roadLength=50, v0=1, numLanes=3):
+    def __init__(self, numCars=5, roadLength=20, v0=1, numLanes=1):
         self.numCars = numCars
         self.roadLength = roadLength
         self.t = 0
-        self.x = []
-        self.v = []
-        self.c = []
-        self.lanes = []
+        self.cars = []
         self.numLanes = numLanes
+        self.last_cars = [None for _ in range(numLanes)]
+        self.first_cars = [None for _ in range(numLanes)]
 
-        for i in range(numCars):
+        for i in range(0, numCars):
             # Set the initial position for each car such that cars are evenly spaced.
-            self.x.append(i * (roadLength // numCars))
-            self.v.append(v0)  # the speed of the cars
-            self.c.append(i)  # the color of the cars (for drawing)
+            x = i * (roadLength // numCars)
+            v = v0
+            c = i
             if numLanes == 1:
-                self.lanes.append(1)
+                lane_idx = 0
             elif numLanes == 2:
                 randint = rng.randint(1, 100)
                 if randint < 10:
-                    randint = 2
+                    lane_idx = 1
                 else:
-                    randint = 1
-                self.lanes.append(randint)
+                    lane_idx = 0
             else:
-                self.lanes.append(rng.randint(1, numLanes - 1))
+                lane_idx = rng.randint(0, numLanes - 1)
 
+            new_car = NewCar(x=x, v=v, c=c, lane=lane_idx)
 
-    # Function for computing x-distances
-    def distance(self, i):
-        # Calculate the periodic distance between car i and the car in front
-        return (self.x[(i + 1) % self.numCars] - self.x[i]) % self.roadLength
+            if self.last_cars[lane_idx] is None:
+                self.last_cars[lane_idx] = self.first_cars[lane_idx] = new_car
+                new_car.next = new_car
+                new_car.prev = new_car
+            else:
+                # make old first car point to the new first car
+                # new first car points to the last car
+                last_car = self.last_cars[lane_idx]
+                first_car = self.first_cars[lane_idx]
 
-    def laneOccupied(self, car_idx, lane_idx):
-        for i in range(self.numCars):
-            if ( self.lanes[i] == lane_idx ) and (self.x[i] == self.x[car_idx]):
-                return True
-        return False
+                first_car.next = new_car
+                new_car.prev = first_car
 
+                last_car.prev = new_car
+                new_car.next = last_car
+                self.first_cars[lane_idx] = new_car
 
 
 
@@ -77,7 +127,6 @@ class Observables:
         self.flowrate = []  # list to store the flow rate
         self.positions = []  # list to store positions of all cars at each time step
         self.lanes = []
-
 
 class BasePropagator:
 
@@ -127,10 +176,10 @@ class MyPropagator(BasePropagator):
             d = cars.distance(i)
 
             # Rule 2: Deceleration - Slow down to avoid collision if the cars are in the same lane
-            if d <= cars.v[i] and cars.lanes[i] == cars.lanes[i+1]:
-                if cars.laneOccupied(car_idx=i, lane_idx=cars.lanes[i]+1) or cars.lanes[i] == cars.numLanes: # Slow down if left lane occupied or does not exist
+            if d <= cars.v[i] and cars.lanes[i] == cars.lanes[i + 1]:
+                if cars.laneOccupied(car_idx=i, lane_idx=cars.lanes[i] + 1) or cars.lanes[i] == cars.numLanes:  # Slow down if left lane occupied or does not exist
                     cars.v[i] = d - 1
-                else: # if overtaking available increase lane number and increase speed
+                else:  # if overtaking available increase lane number and increase speed
                     cars.lanes[i] += 1
                     cars.v[i] += 1
 
@@ -148,12 +197,12 @@ class MyPropagator(BasePropagator):
                     cars.v[i] += 1
 
                 # return to inner lane if possible
-                if cars.laneOccupied(car_idx=i, lane_idx=cars.lanes[i]-1) == False:
+                if cars.laneOccupied(car_idx=i, lane_idx=cars.lanes[i] - 1) == False:
                     cars.lanes[i] -= 1
 
             # Rule 3: Randomization - Randomly slow down
             if cars.v[i] > 0 and rng.rand() < self.p:
-                    cars.v[i] -= 1
+                cars.v[i] -= 1
 
             # Update position
             cars.x[i] = (cars.x[i] + cars.v[i]) % cars.roadLength
@@ -209,7 +258,7 @@ class Simulation:
         plt.show()
 
     def plot_density_vs_flowrate(
-        self, densities, flowrates, title="fundamental_diagram"
+            self, densities, flowrates, title="fundamental_diagram"
     ):
         plt.clf()
         plt.title(title)
@@ -231,19 +280,18 @@ class Simulation:
         plt.savefig(title + ".pdf")
         plt.show()
 
-    def getAverageFlowrate(self, propagator, numsteps = 200):
+    def getAverageFlowrate(self, propagator, numsteps=200):
         for it in range(numsteps):
             propagator.propagate(self.cars, self.obs)
 
-        return sum(self.obs.flowrate)/numsteps
-
+        return sum(self.obs.flowrate) / numsteps
 
     # Run without displaying any animation (fast)
     def run(
-        self,
-        propagator,
-        numsteps=200,  # final time
-        title="simulation",  # Name of output file and title shown at the top
+            self,
+            propagator,
+            numsteps=200,  # final time
+            title="simulation",  # Name of output file and title shown at the top
     ):
 
         for it in range(numsteps):
@@ -254,11 +302,11 @@ class Simulation:
 
     # Run while displaying the animation of bunch of cars going in circle (slow-ish)
     def run_animate(
-        self,
-        propagator,
-        numsteps=200,  # Final time
-        stepsperframe=1,  # How many integration steps between visualising frames
-        title="simulation",  # Name of output file and title shown at the top
+            self,
+            propagator,
+            numsteps=200,  # Final time
+            stepsperframe=1,  # How many integration steps between visualising frames
+            title="simulation",  # Name of output file and title shown at the top
     ):
 
         numframes = int(numsteps / stepsperframe)
@@ -284,5 +332,3 @@ class Simulation:
 
         self.plot_observables(title)
         self.plot_positions_vs_time(title + "_positions")
-
-
