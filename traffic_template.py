@@ -81,6 +81,8 @@ class Cars:
         self.numLanes = numLanes
         self.last_cars = [None for _ in range(numLanes)]
         self.first_cars = [None for _ in range(numLanes)]
+        self.laneCount = [0 for _ in range(numLanes)]
+        self.v0 = v0
 
         for i in range(0, numCars):
             # Set the initial position for each car such that cars are evenly spaced.
@@ -96,7 +98,7 @@ class Cars:
                 else:
                     lane_idx = 0
             else:
-                lane_idx = rng.randint(0, numLanes - 1)
+                lane_idx = rng.randint(0, numLanes)
 
             new_car = NewCar(x=x, v=v, c=c, lane=lane_idx)
 
@@ -116,7 +118,98 @@ class Cars:
                 last_car.prev = new_car
                 new_car.next = last_car
                 self.first_cars[lane_idx] = new_car
+            self.laneCount[lane_idx] += 1
 
+    def getPositions(self):
+        positions = {i: [] for i in range(self.numCars)}
+        for lane_idx in range(self.numLanes):
+            car: NewCar = self.last_cars[lane_idx]
+            if car is None:
+                continue
+            num_cars_in_lane = self.laneCount[lane_idx]
+            for _ in range(num_cars_in_lane):
+                positions[car.c] += (car.x, car.lane)
+                car = car.next
+        return positions
+
+    def laneSwitchTrue(self, car: NewCar, lane_num: int):
+        if self.numLanes == 1:
+            return False
+
+        if lane_num < 0 or lane_num > self.numLanes - 1:
+            return False
+
+        # todo: add logic for case when switching lanes in behind the last car for that specific lane
+
+        side_car: NewCar = self.last_cars[lane_num]
+        if side_car is None:
+            return True
+
+        if side_car.next == side_car and (
+                side_car.x - car.x > car.v or car.x - side_car.x > car.v
+        ):
+            return True
+
+        if side_car.x > car.x:
+            return False if side_car.x - car.x <= car.v else True
+
+        while (
+                side_car.next.x < car.x and side_car != self.first_cars[lane_num]
+        ):  # traverse to car
+            side_car = side_car.next
+
+        if car.x - side_car.x <= side_car.v or side_car.next.x - car.x <= car.v:
+            return False
+        return True
+
+    def switchLane(self, car: NewCar, lane_num: int):
+
+        side_car = self.last_cars[lane_num]
+        if car == self.last_cars[car.lane]:
+            self.last_cars[car.lane] = car.next
+        if car == self.first_cars[car.lane]:
+            self.first_cars[car.lane] = car.prev
+
+        if side_car is None:
+            self.last_cars[lane_num] = self.first_cars[lane_num] = car
+
+            car.next = car
+            car.prev = car
+
+            old_car_next = car.next
+            old_car_prev = car.prev
+
+            old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
+            old_car_next.next = old_car_next
+
+        if side_car.x < car.x:
+            while (
+                    side_car.next.x < car.x and side_car != self.first_cars[lane_num]
+            ):  # traverse to car
+                side_car = side_car.next
+            next_car = side_car.next
+            prev_car = side_car
+        else:
+            next_car = side_car
+            prev_car = side_car.prev
+
+        old_car_next = car.next
+        old_car_prev = car.prev
+
+        car.next = next_car  # assign the pointers to the new cars in the new line
+        car.prev = prev_car
+
+        old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
+        old_car_next.next = old_car_next
+
+        if car.next == self.last_cars[lane_num]:
+            self.first_cars[lane_num] = car
+        if car.prev == self.first_cars[lane_num]:
+            self.last_cars[lane_num] = car
+
+        self.laneCount[car.lane] -= 1
+        self.laneCount[lane_num] += 1
+        car.lane = lane_num  # assign new lane number for car
 
 
 class Observables:
@@ -127,6 +220,7 @@ class Observables:
         self.flowrate = []  # list to store the flow rate
         self.positions = []  # list to store positions of all cars at each time step
         self.lanes = []
+
 
 class BasePropagator:
 
@@ -141,8 +235,7 @@ class BasePropagator:
         # Append observables to their lists
         obs.time.append(cars.t)
         obs.flowrate.append(fr)
-        obs.positions.append(list(cars.x))
-        obs.lanes.append(list(cars.lanes))
+        obs.positions.append(cars.getPositions())
 
     def timestep(self, cars, obs):
         """Virtual method: implemented by the child classes"""
@@ -171,47 +264,37 @@ class MyPropagator(BasePropagator):
         self.p = p
 
     def timestep(self, cars, obs):
-        for i in range(cars.numCars):
-            # Determine the distance to the next car
-            d = cars.distance(i)
+        vSum = 0
+        numLanes = cars.numLanes
+        # todo : Iterate using lane count instead of traversing through nodes
+        for lane_idx in numLanes:
+            car: NewCar = cars.last_cars[lane_idx]
+            if car is None:
+                continue
+            num_cars_in_lane = cars.laneCount[lane_idx]
 
-            # Rule 2: Deceleration - Slow down to avoid collision if the cars are in the same lane
-            if d <= cars.v[i] and cars.lanes[i] == cars.lanes[i + 1]:
-                if cars.laneOccupied(car_idx=i, lane_idx=cars.lanes[i] + 1) or cars.lanes[i] == cars.numLanes:  # Slow down if left lane occupied or does not exist
-                    cars.v[i] = d - 1
-                else:  # if overtaking available increase lane number and increase speed
-                    cars.lanes[i] += 1
-                    cars.v[i] += 1
+            for _ in range(cars.laneCount[lane_idx]):
+                # apply logic for each car
+                if cars.laneCount[lane_idx] > 1:
+                    d = car.next.x - car.x
 
-            if cars.lanes[i] == 1:
-                # Rule 1: Acceleration - Increase speed if possible
-                if cars.v[i] < self.vmax:
-                    cars.v[i] += 1
+                    if car.v < self.vmax + car.lane < d:
+                        car.speedUp()
 
-                if cars.v[i] > self.vmax:
-                    cars.v[i] -= 1
+                    if d <= car.v:  # rule: avoid collision
+                        if cars.laneSwitchTrue(car, car.lane + 1):
+                            cars.switchLane(car, car.lane + 1)
+                        else:
+                            car.avoidCollision(d)
 
-            # rule for middle lane
-            if cars.lanes[i] > 1:
-                if cars.v[i] < self.vmax + cars.lanes[i] - 1:
-                    cars.v[i] += 1
+                if car.v > 0 and rng.rand(1) < self.p: # Randomly slow down
+                    car.slowDown()
 
-                # return to inner lane if possible
-                if cars.laneOccupied(car_idx=i, lane_idx=cars.lanes[i] - 1) == False:
-                    cars.lanes[i] -= 1
+                car.x = (car.x + car.v) % cars.roadLength
+                vSum += car.v
+                cars.t += 1
 
-            # Rule 3: Randomization - Randomly slow down
-            if cars.v[i] > 0 and rng.rand() < self.p:
-                cars.v[i] -= 1
-
-            # Update position
-            cars.x[i] = (cars.x[i] + cars.v[i]) % cars.roadLength
-
-        # Update time
-        cars.t += 1
-
-        # Calculate flow rate (number of cars passing a point per time step)
-        return sum(cars.v) / cars.roadLength
+        return vSum / cars.roadLength
 
 
 ############################################################################################
