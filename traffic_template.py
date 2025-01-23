@@ -301,15 +301,31 @@ class MyPropagator(BasePropagator):
 
 
 def draw_cars(cars, cars_drawing):
-    """Used later on to generate the animation"""
+    """Ritar bilarna och markerar radierna med tunna sträckade linjer."""
     theta = []
     r = []
 
-    for position in cars.x:
-        # Convert to radians for plotting only (do not use radians for the simulation!)
-        theta.append(position * 2 * math.pi / cars.roadLength)
-        r.append(1)
+    # Radier för körfälten
+    lane_radii = {1: 0.6, 2: 0.9, 3: 1.2}
 
+    # Rita de sträckade linjerna för varje radie
+    for radius in lane_radii.values():
+        cars_drawing.plot(
+            np.linspace(0, 2 * math.pi, 100),  # Vinklar (0 till 2π)
+            [radius] * 100,                   # Samma radie över hela cirkeln
+            linestyle="--",                   # Sträckad linje
+            linewidth=0.5,                    # Tunn linje
+            color="gray",                     # Grå färg
+        )
+
+    # Räkna ut bilarnas positioner och radier
+    for position, lane in zip(cars.x, cars.lanes):
+        # Konvertera position till radianer
+        theta.append(position * 2 * math.pi / cars.roadLength)
+        # Tilldela radie beroende på körfält
+        r.append(lane_radii[lane])
+
+    # Rita bilarna
     return cars_drawing.scatter(theta, r, c=cars.c, cmap="hsv")
 
 
