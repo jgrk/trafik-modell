@@ -22,6 +22,7 @@ import numpy as np
 from scipy.stats import sem
 
 import matplotlib
+#matplotlib.use('Agg')
 
 
 class NewCar:
@@ -83,6 +84,7 @@ class Cars:
         self.first_cars = [None for _ in range(numLanes)]
         self.laneCount = [0 for _ in range(numLanes)]
         self.v0 = v0
+        self.c = [i for i in range(numCars)]
 
         for i in range(0, numCars):
             # Set the initial position for each car such that cars are evenly spaced.
@@ -121,14 +123,14 @@ class Cars:
             self.laneCount[lane_idx] += 1
 
     def getPositions(self):
-        positions = {i: [] for i in range(self.numCars)}
+        positions = {i: (0, 0) for i in range(self.numCars)}
         for lane_idx in range(self.numLanes):
             car: NewCar = self.last_cars[lane_idx]
             if car is None:
                 continue
             num_cars_in_lane = self.laneCount[lane_idx]
             for _ in range(num_cars_in_lane):
-                positions[car.c] += (car.x, car.lane)
+                positions[car.c] = (car.x, car.lane)
                 car = car.next
         return positions
 
@@ -267,7 +269,7 @@ class MyPropagator(BasePropagator):
         vSum = 0
         numLanes = cars.numLanes
         # todo : Iterate using lane count instead of traversing through nodes
-        for lane_idx in numLanes:
+        for lane_idx in range(numLanes):
             car: NewCar = cars.last_cars[lane_idx]
             if car is None:
                 continue
@@ -277,8 +279,8 @@ class MyPropagator(BasePropagator):
                 # apply logic for each car
                 if cars.laneCount[lane_idx] > 1:
                     d = car.next.x - car.x
-
-                    if car.v < self.vmax + car.lane < d:
+                    # TODO: Error here, if car is first, d will be negative!
+                    if car.v < self.vmax + car.lane and car.v < d:
                         car.speedUp()
 
                     if d <= car.v:  # rule: avoid collision
@@ -293,7 +295,8 @@ class MyPropagator(BasePropagator):
                 car.x = (car.x + car.v) % cars.roadLength
                 vSum += car.v
                 cars.t += 1
-
+                car = car.next
+        print(cars.getPositions())
         return vSum / cars.roadLength
 
 
@@ -306,7 +309,8 @@ def draw_cars(cars, cars_drawing):
     r = []
 
     # Radier för körfälten
-    lane_radii = {1: 0.6, 2: 0.9, 3: 1.2}
+    lane_radii = {0: 0.6, 1: 0.9, 2: 1.2}
+    positions = cars.getPositions()
 
     # Rita de sträckade linjerna för varje radie
     for radius in lane_radii.values():
@@ -319,14 +323,18 @@ def draw_cars(cars, cars_drawing):
         )
 
     # Räkna ut bilarnas positioner och radier
-    for position, lane in zip(cars.x, cars.lanes):
+    for idx in positions.keys():
+        position = positions[idx][0]
+        lane = positions[idx][1]
         # Konvertera position till radianer
         theta.append(position * 2 * math.pi / cars.roadLength)
         # Tilldela radie beroende på körfält
         r.append(lane_radii[lane])
 
+
     # Rita bilarna
     return cars_drawing.scatter(theta, r, c=cars.c, cmap="hsv")
+
 
 
 def animate(framenr, cars, obs, propagator, road_drawing, stepsperframe):
@@ -371,7 +379,8 @@ class Simulation:
         plt.clf()
         plt.title(title)
         for i in range(self.cars.numCars):
-            positions = [pos[i] for pos in self.obs.positions]
+            positions = [pos[i][0] for pos in self.obs.positions]
+            print(self.obs.time, positions)
             plt.scatter(self.obs.time, positions, label=f"Car {i}", s=10)
         plt.xlabel("Time")
         plt.ylabel("Position on road")
