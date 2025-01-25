@@ -23,7 +23,9 @@ import numpy as np
 from scipy.stats import sem
 
 import matplotlib
-#matplotlib.use('Agg')
+
+
+# matplotlib.use('Agg')
 
 
 class NewCar:
@@ -81,8 +83,8 @@ class Cars:
         self.t = 0
         self.cars = []
         self.numLanes = numLanes
-        self.last_cars: list[NewCar|None] = [None for _ in range(numLanes)]
-        self.first_cars: list[NewCar|None] = [None for _ in range(numLanes)]
+        self.last_cars: list[NewCar | None] = [None for _ in range(numLanes)]
+        self.first_cars: list[NewCar | None] = [None for _ in range(numLanes)]
         self.laneCount = [0 for _ in range(numLanes)]
         self.v0 = v0
         self.c = [i for i in range(numCars)]
@@ -142,14 +144,12 @@ class Cars:
         if lane_num < 0 or lane_num > self.numLanes - 1:
             return False
 
-        # todo: add logic for case when switching lanes in behind the last car for that specific lane
-
         side_car: NewCar = self.last_cars[lane_num]
         if side_car is None:
             return True
 
         if side_car.next == side_car and (
-                side_car.x - car.x > car.v or car.x - side_car.x > car.v
+            side_car.x - car.x > car.v or car.x - side_car.x > car.v
         ):
             return True
 
@@ -157,7 +157,7 @@ class Cars:
             return False if side_car.x - car.x <= car.v else True
 
         while (
-                side_car.next.x < car.x and side_car != self.first_cars[lane_num]
+            side_car.next.x < car.x and side_car != self.first_cars[lane_num]
         ):  # traverse to car
             side_car = side_car.next
 
@@ -167,11 +167,14 @@ class Cars:
 
     def switchLane(self, car: NewCar, lane_num: int):
 
-        side_car: NewCar|None = self.last_cars[lane_num]
-        if car == self.last_cars[car.lane]:
-            self.last_cars[car.lane] = car.next
-        if car == self.first_cars[car.lane]:
-            self.first_cars[car.lane] = car.prev
+        side_car: NewCar | None = self.last_cars[lane_num]
+        if self.laneCount[car.lane] == 1:
+            self.last_cars[car.lane] = self.first_cars[car.lane] = None
+        else:
+            if car == self.last_cars[car.lane]:
+                self.last_cars[car.lane] = car.next
+            if car == self.first_cars[car.lane]:
+                self.first_cars[car.lane] = car.prev
 
         if side_car is None:
             # mark the car as first and last since only car in the new lane
@@ -186,8 +189,9 @@ class Cars:
             car.prev = car
 
             # fill gap in old lane
-            old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
-            old_car_prev.next = old_car_next
+            if self.laneCount[car.lane] > 1:
+                old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
+                old_car_prev.next = old_car_next
 
             # set new lane counts and update lane number for car
             self.laneCount[car.lane] -= 1
@@ -210,8 +214,16 @@ class Cars:
             side_car.prev = car
 
             # fill gap in old lane
-            old_car_next.prev = old_car_prev
-            old_car_prev.next = old_car_next
+            if self.laneCount[car.lane] > 1:
+                old_car_next.prev = old_car_prev
+                old_car_prev.next = old_car_next
+
+            if car.x < side_car.x:
+                self.first_cars[lane_num] = side_car
+                self.last_cars[lane_num] = car
+            else:
+                self.first_cars[lane_num] = car
+                self.last_cars[lane_num] = side_car
 
             # update lane count and lane number
             self.laneCount[car.lane] -= 1
@@ -222,14 +234,19 @@ class Cars:
 
         if side_car.x < car.x:
             while (
-                    side_car.next.x < car.x and side_car != self.first_cars[lane_num]
+                side_car.next
+                and side_car.next.x < car.x
+                and side_car != self.first_cars[lane_num]
             ):  # traverse to car
                 side_car = side_car.next
             next_car = side_car.next
             prev_car = side_car
+            if side_car == self.first_cars[lane_num]:
+                self.first_cars[lane_num] = car
         else:
             next_car = side_car
             prev_car = side_car.prev
+            self.last_cars[lane_num] = car
 
         old_car_next = car.next
         old_car_prev = car.prev
@@ -239,19 +256,48 @@ class Cars:
         prev_car.next = car
         next_car.prev = car
 
-        old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
-        old_car_prev.next = old_car_next
-
-        if car.next == self.last_cars[lane_num]:
-            self.first_cars[lane_num] = car
-            self.last_cars[lane_num].prev = car
-        if car.prev == self.first_cars[lane_num]:
-            self.last_cars[lane_num] = car
-            self.first_cars[lane_num].next = car
+        if self.laneCount[car.lane] > 1:
+            old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
+            old_car_prev.next = old_car_next
 
         self.laneCount[car.lane] -= 1
         self.laneCount[lane_num] += 1
         car.lane = lane_num  # assign new lane number for car
+
+        return None
+
+    def healthy(self):
+        for lane_idx in range(self.numLanes):
+            car_count = 0
+            if self.last_cars[lane_idx] is None:
+                assert self.laneCount[lane_idx] == car_count
+                continue
+
+            assert self.first_cars[lane_idx].next == self.last_cars[lane_idx]
+            assert self.last_cars[lane_idx].prev == self.first_cars[lane_idx]
+            car = self.last_cars[lane_idx]
+
+            for _ in range(self.laneCount[lane_idx]):
+                if self.laneCount[lane_idx] != 1:
+                    try:
+                        assert car.next != car
+                    except:
+                        print("failure")
+
+                else:
+                    assert car.next == car
+                    assert car.prev == car
+
+                if car != self.first_cars[lane_idx]:
+                    assert car.next.x > car.x
+
+                assert car.lane == lane_idx
+                car_count += 1
+                car = car.next
+
+            assert car_count == self.laneCount[lane_idx]
+
+        return True
 
 
 class Observables:
@@ -308,43 +354,61 @@ class MyPropagator(BasePropagator):
     def timestep(self, cars, obs):
         vSum = 0
         numLanes = cars.numLanes
-        # todo : Iterate using lane count instead of traversing through nodes
+
         for lane_idx in range(numLanes):
+            lane_swap = False
             car: NewCar = cars.last_cars[lane_idx]
             if car is None:
                 continue
             num_cars_in_lane = cars.laneCount[lane_idx]
 
-            for _ in range(cars.laneCount[lane_idx]):
-                # apply logic for each car
-                if cars.laneCount[lane_idx] > 1:
+            # apply logic for each car
+            for _ in range(num_cars_in_lane):
+                car_next = car.next
+                if num_cars_in_lane > 1:
                     if car == cars.first_cars[lane_idx]:
                         d = cars.roadLength - car.x + car.next.x
                     else:
                         d = car.next.x - car.x
                     d = d % cars.roadLength
-                    # TODO: Error here, if car is first, d will be negative!
-                    if car.v < self.vmax + car.lane and car.v < d:
-                        car.speedUp()
+                else:
+                    d = cars.roadLength
 
-                    if d <= car.v:  # rule: avoid collision
-                        if cars.laneSwitchTrue(car, car.lane + 1):
-                            cars.switchLane(car, car.lane + 1)
-                        else:
-                            car.avoidCollision(d)
+                # avoid collision by either switching lane or slowing down
+                if d <= car.v:
+                    if cars.laneSwitchTrue(car, car.lane + 1):
+                        cars.switchLane(car, car.lane + 1)
+                        cars.healthy()
 
-                if car.v > 0 and (rng.rand(1) < self.p) and d <= car.v:  # Randomly slow down
+                        print(f"car {car.c} changed to lane {car.lane + 1}")
+                        lane_swap = True
+                    else:
+                        car.avoidCollision(d)
+
+                # speed up if possible, outer lanes has higher max speeds
+                if car.v < self.vmax + car.lane and car.v < d:
+                    car.speedUp()
+
+                #  randomly slow down
+                if car.v > 1 and (rng.rand(1) < self.p):  # Randomly slow down
                     car.slowDown()
 
+                # switch to inner lane if possible
+                if cars.laneSwitchTrue(car, car.lane - 1) and lane_swap is False:
+                    cars.switchLane(car, car.lane - 1)
+                    # cars.healthy()
+
+                # if the periodic distance becomes less than before (old_x > car.x), it has now become the last car
                 old_x = car.x
                 car.x = (car.x + car.v) % cars.roadLength
                 if car == cars.first_cars[car.lane] and car.x < old_x:
                     cars.first_cars[car.lane] = car.prev
                     cars.last_cars[car.lane] = car
+                # assert cars.healthy()
 
                 vSum += car.v
-                cars.t += 1
-                car = car.next
+                car = car_next
+        cars.t += 1
         print(cars.getPositions())
         return vSum / cars.roadLength
 
@@ -365,10 +429,10 @@ def draw_cars(cars, cars_drawing):
     for radius in lane_radii.values():
         cars_drawing.plot(
             np.linspace(0, 2 * math.pi, 100),  # Vinklar (0 till 2π)
-            [radius] * 100,                   # Samma radie över hela cirkeln
-            linestyle="--",                   # Sträckad linje
-            linewidth=0.5,                    # Tunn linje
-            color="gray",                     # Grå färg
+            [radius] * 100,  # Samma radie över hela cirkeln
+            linestyle="--",  # Sträckad linje
+            linewidth=0.5,  # Tunn linje
+            color="gray",  # Grå färg
         )
 
     # Räkna ut bilarnas positioner och radier
@@ -380,10 +444,8 @@ def draw_cars(cars, cars_drawing):
         # Tilldela radie beroende på körfält
         r.append(lane_radii[lane])
 
-
     # Rita bilarna
     return cars_drawing.scatter(theta, r, c=cars.c, cmap="hsv")
-
 
 
 def animate(framenr, cars, obs, propagator, road_drawing, stepsperframe):
@@ -414,7 +476,7 @@ class Simulation:
         plt.show()
 
     def plot_density_vs_flowrate(
-            self, densities, flowrates, title="fundamental_diagram"
+        self, densities, flowrates, title="fundamental_diagram"
     ):
         plt.clf()
         plt.title(title)
@@ -445,25 +507,26 @@ class Simulation:
 
     # Run without displaying any animation (fast)
     def run(
-            self,
-            propagator,
-            numsteps=200,  # final time
-            title="simulation",  # Name of output file and title shown at the top
+        self,
+        propagator,
+        numsteps=200,  # final time
+        title="simulation",  # Name of output file and title shown at the top
     ):
 
         for it in range(numsteps):
             propagator.propagate(self.cars, self.obs)
+            # assert self.cars.healthy()
 
-        # self.plot_observables(title)
+        self.plot_observables(title)
         # self.plot_positions_vs_time(title + "_positions")
 
     # Run while displaying the animation of bunch of cars going in circle (slow-ish)
     def run_animate(
-            self,
-            propagator,
-            numsteps=200,  # Final time
-            stepsperframe=1,  # How many integration steps between visualising frames
-            title="simulation",  # Name of output file and title shown at the top
+        self,
+        propagator,
+        numsteps=200,  # Final time
+        stepsperframe=1,  # How many integration steps between visualising frames
+        title="simulation",  # Name of output file and title shown at the top
     ):
 
         numframes = int(numsteps / stepsperframe)
@@ -482,10 +545,3 @@ class Simulation:
             repeat=False,
         )
         plt.show()
-
-        # If you experience problems visualizing the animation and/or
-        # the following figures comment out the next line
-        # plt.waitforbuttonpress(30)
-
-        self.plot_observables(title)
-        self.plot_positions_vs_time(title + "_positions")

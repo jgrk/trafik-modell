@@ -1,10 +1,13 @@
 from unittest import TestCase
 from traffic_template import *
-cars = Cars(numCars=5, roadLength=20, v0=1, numLanes=3)
+
+cars = Cars(numCars=10, roadLength=100, v0=1, numLanes=3)
 sim = Simulation(cars=cars)
-prop = MyPropagator(vmax=5, p=0.7)
-sim.run(propagator=prop)
+prop = MyPropagator(vmax=5, p=0.2)
+# sim.run(propagator=prop)
 sim.run_animate(prop)
+
+
 class Test(TestCase):
     def test_Cars_init(self):
         cars = Cars()
@@ -23,7 +26,7 @@ class Test(TestCase):
         cars.first_cars[2] = cars.last_cars[2] = None
         for lane_idx in range(cars.numLanes):
             car = cars.last_cars[lane_idx]
-            #print(cars.laneSwitchTrue(car, car.lane + 1))
+            # print(cars.laneSwitchTrue(car, car.lane + 1))
 
     def test_simulation_init(self):
         cars = Cars()
