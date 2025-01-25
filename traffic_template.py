@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 import numpy.random as rng
 import numpy as np
+
 from scipy.stats import sem
 
 import matplotlib
@@ -80,8 +81,8 @@ class Cars:
         self.t = 0
         self.cars = []
         self.numLanes = numLanes
-        self.last_cars = [None for _ in range(numLanes)]
-        self.first_cars = [None for _ in range(numLanes)]
+        self.last_cars: list[NewCar|None] = [None for _ in range(numLanes)]
+        self.first_cars: list[NewCar|None] = [None for _ in range(numLanes)]
         self.laneCount = [0 for _ in range(numLanes)]
         self.v0 = v0
         self.c = [i for i in range(numCars)]
@@ -166,23 +167,58 @@ class Cars:
 
     def switchLane(self, car: NewCar, lane_num: int):
 
-        side_car = self.last_cars[lane_num]
+        side_car: NewCar|None = self.last_cars[lane_num]
         if car == self.last_cars[car.lane]:
             self.last_cars[car.lane] = car.next
         if car == self.first_cars[car.lane]:
             self.first_cars[car.lane] = car.prev
 
         if side_car is None:
+            # mark the car as first and last since only car in the new lane
             self.last_cars[lane_num] = self.first_cars[lane_num] = car
 
-            car.next = car
-            car.prev = car
-
+            # save pointers to next and prev cars in old lane
             old_car_next = car.next
             old_car_prev = car.prev
 
+            # assign pointers to itself, since only car in the new lane
+            car.next = car
+            car.prev = car
+
+            # fill gap in old lane
             old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
-            old_car_next.next = old_car_next
+            old_car_prev.next = old_car_next
+
+            # set new lane counts and update lane number for car
+            self.laneCount[car.lane] -= 1
+            self.laneCount[lane_num] += 1
+            car.lane = lane_num
+
+            return None
+
+        if self.laneCount[lane_num] == 1:
+            next_car = prev_car = side_car
+
+            # save old pointers
+            old_car_next = car.next
+            old_car_prev = car.prev
+
+            # assign pointers of the two cars to each other
+            car.next = next_car
+            side_car.next = car
+            car.prev = prev_car
+            side_car.prev = car
+
+            # fill gap in old lane
+            old_car_next.prev = old_car_prev
+            old_car_prev.next = old_car_next
+
+            # update lane count and lane number
+            self.laneCount[car.lane] -= 1
+            self.laneCount[lane_num] += 1
+            car.lane = lane_num
+
+            return None
 
         if side_car.x < car.x:
             while (
@@ -200,14 +236,18 @@ class Cars:
 
         car.next = next_car  # assign the pointers to the new cars in the new line
         car.prev = prev_car
+        prev_car.next = car
+        next_car.prev = car
 
         old_car_next.prev = old_car_prev  # fill in the gap in the previous lane
-        old_car_next.next = old_car_next
+        old_car_prev.next = old_car_next
 
         if car.next == self.last_cars[lane_num]:
             self.first_cars[lane_num] = car
+            self.last_cars[lane_num].prev = car
         if car.prev == self.first_cars[lane_num]:
             self.last_cars[lane_num] = car
+            self.first_cars[lane_num].next = car
 
         self.laneCount[car.lane] -= 1
         self.laneCount[lane_num] += 1
@@ -278,7 +318,11 @@ class MyPropagator(BasePropagator):
             for _ in range(cars.laneCount[lane_idx]):
                 # apply logic for each car
                 if cars.laneCount[lane_idx] > 1:
-                    d = car.next.x - car.x
+                    if car == cars.first_cars[lane_idx]:
+                        d = cars.roadLength - car.x + car.next.x
+                    else:
+                        d = car.next.x - car.x
+                    d = d % cars.roadLength
                     # TODO: Error here, if car is first, d will be negative!
                     if car.v < self.vmax + car.lane and car.v < d:
                         car.speedUp()
@@ -289,10 +333,15 @@ class MyPropagator(BasePropagator):
                         else:
                             car.avoidCollision(d)
 
-                if car.v > 0 and rng.rand(1) < self.p: # Randomly slow down
+                if car.v > 0 and (rng.rand(1) < self.p) and d <= car.v:  # Randomly slow down
                     car.slowDown()
 
+                old_x = car.x
                 car.x = (car.x + car.v) % cars.roadLength
+                if car == cars.first_cars[car.lane] and car.x < old_x:
+                    cars.first_cars[car.lane] = car.prev
+                    cars.last_cars[car.lane] = car
+
                 vSum += car.v
                 cars.t += 1
                 car = car.next
