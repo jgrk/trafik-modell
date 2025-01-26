@@ -12,6 +12,7 @@
     (d) a class that encapsulates the aforementioned ones and performs the actual simulation
     You are asked to implement the propagation rule(s) corresponding to the traffic model(s) of the project.
 """
+from typing import Dict, Tuple
 
 from scipy.optimize import curve_fit
 import math
@@ -19,6 +20,8 @@ import matplotlib.pyplot as plt
 from matplotlib import animation
 import numpy.random as rng
 import numpy as np
+from typing import Iterable
+    
 
 from scipy.stats import sem
 
@@ -36,20 +39,6 @@ class NewCar:
         self.v = v
         self.c = c
         self.lane = lane
-
-    def change_lane(self, next, prev, overTaking: bool = True):
-        """
-        Change lane of the car
-        :param overTaking: Increases lane number if true, else decreases lane number
-        :return:
-        """
-        if overTaking:
-            self.lane += 1
-        else:
-            self.lane -= 1
-
-        self.next = next
-        self.prev = prev
 
     def speedUp(self):
         """
@@ -77,9 +66,13 @@ class NewCar:
 class Cars:
     """Class for the state of a number of cars"""
 
-    def __init__(self, numCars=5, roadLength=20, v0=1, numLanes=1):
-        self.numCars = numCars
+    def __init__(self, numCars=5, roadLength=20, v0=1, numLanes=1, carDensity=None):
         self.roadLength = roadLength
+        if carDensity:
+            self.carDensity = carDensity
+            self.numCars = roadLength*carDensity
+        else:
+            self.numCars = numCars
         self.t = 0
         self.cars = []
         self.numLanes = numLanes
@@ -94,6 +87,7 @@ class Cars:
             x = i * (roadLength // numCars)
             v = v0
             c = i
+
             if numLanes == 1:
                 lane_idx = 0
             elif numLanes == 2:
@@ -103,6 +97,7 @@ class Cars:
                 else:
                     lane_idx = 0
             else:
+                # if more than two lanes, randomly distribute cars over each lane
                 lane_idx = rng.randint(0, numLanes)
 
             new_car = NewCar(x=x, v=v, c=c, lane=lane_idx)
@@ -125,7 +120,7 @@ class Cars:
                 self.first_cars[lane_idx] = new_car
             self.laneCount[lane_idx] += 1
 
-    def getPositions(self):
+    def getPositions(self) -> dict[int, tuple[int, int]]:
         positions = {i: (0, 0) for i in range(self.numCars)}
         for lane_idx in range(self.numLanes):
             car: NewCar = self.last_cars[lane_idx]
@@ -137,7 +132,10 @@ class Cars:
                 car = car.next
         return positions
 
-    def laneSwitchTrue(self, car: NewCar, lane_num: int):
+    def laneSwitchTrue(self, car: NewCar, lane_num: int) -> bool:
+        """
+        Check if car lane is switchable
+        """
         if self.numLanes == 1:
             return False
 
@@ -288,7 +286,7 @@ class Cars:
                     assert car.next == car
                     assert car.prev == car
 
-                if car != self.first_cars[lane_idx]:
+                if car != self.first_cars[lane_idx] and self.laneCount[lane_idx] > 1:
                     assert car.next.x > car.x
 
                 assert car.lane == lane_idx
@@ -351,7 +349,8 @@ class MyPropagator(BasePropagator):
         self.vmax = vmax
         self.p = p
 
-    def timestep(self, cars, obs):
+    def timestep(self, cars: Cars, obs: Observables):
+        visited = set()
         vSum = 0
         numLanes = cars.numLanes
 
@@ -364,6 +363,11 @@ class MyPropagator(BasePropagator):
 
             # apply logic for each car
             for _ in range(num_cars_in_lane):
+                if car in visited:
+                    print(f'skipping {car}, already visited')
+                    car = car.next
+                    continue
+                visited.add(car)
                 car_next = car.next
                 if num_cars_in_lane > 1:
                     if car == cars.first_cars[lane_idx]:
@@ -378,25 +382,29 @@ class MyPropagator(BasePropagator):
                 if d <= car.v:
                     if cars.laneSwitchTrue(car, car.lane + 1):
                         cars.switchLane(car, car.lane + 1)
-                        cars.healthy()
+                        # cars.healthy()
 
-                        print(f"car {car.c} changed to lane {car.lane + 1}")
+                        print(f"car {car.c} changed from lane {car.lane} -> {car.lane + 1}")
                         lane_swap = True
                     else:
+                        print(f'car {car.c} avoided collision v = {car.v} -> {d - 1}')
                         car.avoidCollision(d)
 
                 # speed up if possible, outer lanes has higher max speeds
                 if car.v < self.vmax + car.lane and car.v < d:
+                    print(f'car {car.c} speed up v = {car.v} -> {car.v + 1}')
                     car.speedUp()
 
                 #  randomly slow down
                 if car.v > 1 and (rng.rand(1) < self.p):  # Randomly slow down
+                    print(f'car {car.c} slowed down v = {car.v} -> {car.v - 1}')
                     car.slowDown()
 
                 # switch to inner lane if possible
                 if cars.laneSwitchTrue(car, car.lane - 1) and lane_swap is False:
+                    print(f"car {car.c} changed from lane {car.lane} -> {car.lane - 1}")
                     cars.switchLane(car, car.lane - 1)
-                    # cars.healthy()
+
 
                 # if the periodic distance becomes less than before (old_x > car.x), it has now become the last car
                 old_x = car.x
@@ -407,10 +415,12 @@ class MyPropagator(BasePropagator):
                 # assert cars.healthy()
 
                 vSum += car.v
+
                 car = car_next
         cars.t += 1
-        print(cars.getPositions())
-        return vSum / cars.roadLength
+        # print(cars.getPositions())
+        print(f'v_sum = {vSum}')
+        return vSum/cars.roadLength
 
 
 ############################################################################################
@@ -447,6 +457,13 @@ def draw_cars(cars, cars_drawing):
     # Rita bilarna
     return cars_drawing.scatter(theta, r, c=cars.c, cmap="hsv")
 
+def draw_cars_2(cars, cars_drawing):
+    positions = cars.getPositions()
+    x = [positions[i][0] for i in positions.keys()]
+    lane = [positions[i][1] for i in positions.keys()]
+    colors = cars.c
+    return cars_drawing.scatter(x, lane, c=colors, cmap="hsv")
+
 
 def animate(framenr, cars, obs, propagator, road_drawing, stepsperframe):
     """Animation function which integrates a few steps and return a drawing"""
@@ -454,7 +471,7 @@ def animate(framenr, cars, obs, propagator, road_drawing, stepsperframe):
     for it in range(stepsperframe):
         propagator.propagate(cars, obs)
 
-    return (draw_cars(cars, road_drawing),)
+    return (draw_cars_2(cars, road_drawing),)
 
 
 class Simulation:
@@ -503,7 +520,28 @@ class Simulation:
         for it in range(numsteps):
             propagator.propagate(self.cars, self.obs)
 
-        return sum(self.obs.flowrate) / numsteps
+        return np.mean(self.obs.flowrate)
+
+    def plotAvgFlowrate(self, attrName: str, attrValues: list, propagator: MyPropagator, numsteps: int):
+        x = attrValues
+        y = []
+        for value in attrValues:
+            setattr(self.cars, attrName, value)
+            for it in range(numsteps):
+                propagator.propagate(self.cars, self.obs)
+
+            y.append(np.mean(self.obs.flowrate[-100:]))
+
+        plt.figure(figsize=(8, 6))
+        plt.plot(x, y, marker='o', linestyle='-')
+        plt.xlabel(attrName.capitalize())
+        plt.ylabel('Average Flow rate')
+        plt.title(f'Flow rate against {attrName}')
+        plt.grid(True)
+        plt.show()
+
+
+
 
     # Run without displaying any animation (fast)
     def run(
@@ -515,7 +553,10 @@ class Simulation:
 
         for it in range(numsteps):
             propagator.propagate(self.cars, self.obs)
-            # assert self.cars.healthy()
+            try:
+                assert self.cars.healthy()
+            except:
+                print('error here')
 
         self.plot_observables(title)
         # self.plot_positions_vs_time(title + "_positions")
@@ -532,7 +573,7 @@ class Simulation:
         numframes = int(numsteps / stepsperframe)
 
         fig = plt.figure()
-        ax = fig.add_subplot(111, projection="polar")
+        ax = fig.add_subplot(111)
         ax.axis("off")
         # Call the animator, blit=False means re-draw everything
         anim = animation.FuncAnimation(
