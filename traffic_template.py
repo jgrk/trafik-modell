@@ -12,6 +12,7 @@
     (d) a class that encapsulates the aforementioned ones and performs the actual simulation
     You are asked to implement the propagation rule(s) corresponding to the traffic model(s) of the project.
 """
+import time
 from typing import Dict, Tuple
 
 from scipy.optimize import curve_fit
@@ -21,7 +22,7 @@ from matplotlib import animation
 import numpy.random as rng
 import numpy as np
 from typing import Iterable
-    
+from time import sleep
 
 from scipy.stats import sem
 
@@ -66,11 +67,11 @@ class NewCar:
 class Cars:
     """Class for the state of a number of cars"""
 
-    def __init__(self, numCars=5, roadLength=20, v0=1, numLanes=1, carDensity=None):
+    def __init__(self, numCars=5, roadLength=20, v0=1, numLanes=1, carDensity=None, laneSwitchAllowed: bool = True):
         self.roadLength = roadLength
-        if carDensity:
+        if carDensity is not None:
             self.carDensity = carDensity
-            self.numCars = roadLength*carDensity
+            self.numCars = int(roadLength * carDensity)
         else:
             self.numCars = numCars
         self.t = 0
@@ -78,11 +79,12 @@ class Cars:
         self.numLanes = numLanes
         self.last_cars: list[NewCar | None] = [None for _ in range(numLanes)]
         self.first_cars: list[NewCar | None] = [None for _ in range(numLanes)]
-        self.laneCount = [0 for _ in range(numLanes)]
+        self.laneCount = [0 for _ in range(self.numLanes)]
         self.v0 = v0
-        self.c = [i for i in range(numCars)]
+        self.c = [i for i in range(self.numCars)]
+        self.laneSwitchAllowed = laneSwitchAllowed
 
-        for i in range(0, numCars):
+        for i in range(0, self.numCars):
             # Set the initial position for each car such that cars are evenly spaced.
             x = i * (roadLength // numCars)
             v = v0
@@ -136,6 +138,9 @@ class Cars:
         """
         Check if car lane is switchable
         """
+        if self.laneSwitchAllowed is False:
+            return False
+
         if self.numLanes == 1:
             return False
 
@@ -147,7 +152,7 @@ class Cars:
             return True
 
         if side_car.next == side_car and (
-            side_car.x - car.x > car.v or car.x - side_car.x > car.v
+                side_car.x - car.x > car.v or car.x - side_car.x > car.v
         ):
             return True
 
@@ -155,7 +160,7 @@ class Cars:
             return False if side_car.x - car.x <= car.v else True
 
         while (
-            side_car.next.x < car.x and side_car != self.first_cars[lane_num]
+                side_car.next.x < car.x and side_car != self.first_cars[lane_num]
         ):  # traverse to car
             side_car = side_car.next
 
@@ -232,9 +237,9 @@ class Cars:
 
         if side_car.x < car.x:
             while (
-                side_car.next
-                and side_car.next.x < car.x
-                and side_car != self.first_cars[lane_num]
+                    side_car.next
+                    and side_car.next.x < car.x
+                    and side_car != self.first_cars[lane_num]
             ):  # traverse to car
                 side_car = side_car.next
             next_car = side_car.next
@@ -367,6 +372,7 @@ class MyPropagator(BasePropagator):
                     print(f'skipping {car}, already visited')
                     car = car.next
                     continue
+
                 visited.add(car)
                 car_next = car.next
                 if num_cars_in_lane > 1:
@@ -378,25 +384,23 @@ class MyPropagator(BasePropagator):
                 else:
                     d = cars.roadLength
 
+                    # speed up if possible, outer lanes has higher max speeds
+                if car.v < self.vmax + car.lane:
+                    print(f'car {car.c} speed up v = {car.v} -> {car.v + 1}')
+                    car.speedUp()
+
                 # avoid collision by either switching lane or slowing down
                 if d <= car.v:
                     if cars.laneSwitchTrue(car, car.lane + 1):
                         cars.switchLane(car, car.lane + 1)
-                        # cars.healthy()
-
                         print(f"car {car.c} changed from lane {car.lane} -> {car.lane + 1}")
                         lane_swap = True
                     else:
                         print(f'car {car.c} avoided collision v = {car.v} -> {d - 1}')
                         car.avoidCollision(d)
 
-                # speed up if possible, outer lanes has higher max speeds
-                if car.v < self.vmax + car.lane and car.v < d:
-                    print(f'car {car.c} speed up v = {car.v} -> {car.v + 1}')
-                    car.speedUp()
-
-                #  randomly slow down
-                if car.v > 1 and (rng.rand(1) < self.p):  # Randomly slow down
+                # randomly slow down
+                if car.v > 0 and (rng.rand() < self.p):  # Randomly slow down
                     print(f'car {car.c} slowed down v = {car.v} -> {car.v - 1}')
                     car.slowDown()
 
@@ -404,7 +408,6 @@ class MyPropagator(BasePropagator):
                 if cars.laneSwitchTrue(car, car.lane - 1) and lane_swap is False:
                     print(f"car {car.c} changed from lane {car.lane} -> {car.lane - 1}")
                     cars.switchLane(car, car.lane - 1)
-
 
                 # if the periodic distance becomes less than before (old_x > car.x), it has now become the last car
                 old_x = car.x
@@ -420,7 +423,7 @@ class MyPropagator(BasePropagator):
         cars.t += 1
         # print(cars.getPositions())
         print(f'v_sum = {vSum}')
-        return vSum/cars.roadLength
+        return vSum / cars.roadLength
 
 
 ############################################################################################
@@ -457,6 +460,7 @@ def draw_cars(cars, cars_drawing):
     # Rita bilarna
     return cars_drawing.scatter(theta, r, c=cars.c, cmap="hsv")
 
+
 def draw_cars_2(cars, cars_drawing):
     positions = cars.getPositions()
     x = [positions[i][0] for i in positions.keys()]
@@ -469,6 +473,7 @@ def animate(framenr, cars, obs, propagator, road_drawing, stepsperframe):
     """Animation function which integrates a few steps and return a drawing"""
 
     for it in range(stepsperframe):
+        # time.sleep(1.0)
         propagator.propagate(cars, obs)
 
     return (draw_cars_2(cars, road_drawing),)
@@ -493,7 +498,7 @@ class Simulation:
         plt.show()
 
     def plot_density_vs_flowrate(
-        self, densities, flowrates, title="fundamental_diagram"
+            self, densities, flowrates, title="fundamental_diagram"
     ):
         plt.clf()
         plt.title(title)
@@ -526,7 +531,8 @@ class Simulation:
         x = attrValues
         y = []
         for value in attrValues:
-            setattr(self.cars, attrName, value)
+            # cars = Cars(numCars=numCars, roadLength=roadLength, v0=v0, numLanes=numLanes)
+
             for it in range(numsteps):
                 propagator.propagate(self.cars, self.obs)
 
@@ -540,15 +546,12 @@ class Simulation:
         plt.grid(True)
         plt.show()
 
-
-
-
     # Run without displaying any animation (fast)
     def run(
-        self,
-        propagator,
-        numsteps=200,  # final time
-        title="simulation",  # Name of output file and title shown at the top
+            self,
+            propagator,
+            numsteps=200,  # final time
+            title="simulation",  # Name of output file and title shown at the top
     ):
 
         for it in range(numsteps):
@@ -558,16 +561,16 @@ class Simulation:
             except:
                 print('error here')
 
-        self.plot_observables(title)
+        # self.plot_observables(title)
         # self.plot_positions_vs_time(title + "_positions")
 
     # Run while displaying the animation of bunch of cars going in circle (slow-ish)
     def run_animate(
-        self,
-        propagator,
-        numsteps=200,  # Final time
-        stepsperframe=1,  # How many integration steps between visualising frames
-        title="simulation",  # Name of output file and title shown at the top
+            self,
+            propagator,
+            numsteps=200,  # Final time
+            stepsperframe=1,  # How many integration steps between visualising frames
+            title="simulation",  # Name of output file and title shown at the top
     ):
 
         numframes = int(numsteps / stepsperframe)
