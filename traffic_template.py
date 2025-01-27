@@ -34,6 +34,8 @@ import matplotlib
 
 class NewCar:
     def __init__(self, x, v, c, lane):
+        self.next = None
+        self.prev = None
         self.x = x
         self.v = v
         self.c = c
@@ -90,7 +92,7 @@ class Cars:
                 lane_idx = 0
             elif numLanes == 2:
                 randint = rng.randint(1, 100)
-                if randint < 10:
+                if randint < 50:
                     lane_idx = 1
                 else:
                     lane_idx = 0
@@ -524,6 +526,12 @@ class Simulation:
             propagator.propagate(self.cars, self.obs)
 
         return np.mean(self.obs.flowrate)
+
+    def getStdFlowrate(self, propagator, numsteps=200):
+        for it in range(numsteps):
+            propagator.propagate(self.cars, self.obs)
+
+        return np.std(self.obs.flowrate[-50:])
 
     def plotAvgFlowrate(
         self, attrName: str, attrValues: list, propagator: MyPropagator, numsteps: int

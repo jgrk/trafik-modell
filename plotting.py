@@ -1,7 +1,16 @@
+import matplotlib.pyplot as plt
 import numpy as np
 
 from traffic_template import *
 from typing import Sequence
+plt.rcParams['font.size'] = 14  # Ändra allmän textstorlek
+plt.rcParams['axes.titlesize'] = 16  # Ändra storlek för titlar
+plt.rcParams['axes.labelsize'] = 14  # Ändra storlek för axelns etiketter
+plt.rcParams['xtick.labelsize'] = 12  # Ändra storlek för x-axelns ticks
+plt.rcParams['ytick.labelsize'] = 12  # Ändra storlek för y-axelns ticks
+plt.rcParams['legend.fontsize'] = 12  # Ändra storlek för legendtext
+plt.rcParams['figure.titlesize'] = 18  # Ändra storlek för figurens titel
+
 
 
 class Plotting:
@@ -22,6 +31,30 @@ class Plotting:
         self.p = p
         self.vmax = vmax
         self.laneSwitchAllowed = laneSwitchAllowed
+
+    def plotFlowrateLane(self, numLanes: int = 3, nsteps: int = 500):
+
+        plt.figure()
+        for lane_idx in range(numLanes):
+            flowrates = []
+            carDensityList = [i / 10 for i in range(1, 11)]
+            for carDensity in carDensityList:
+                numCars = int(carDensity * self.roadLength)
+                cars = Cars(numCars=numCars, roadLength=self.roadLength, numLanes=lane_idx+1,
+                            laneSwitchAllowed=self.laneSwitchAllowed)
+                prop = MyPropagator(vmax=self.vmax, p=self.p)
+                sim = Simulation(cars=cars)
+                sim.run(propagator=prop, numsteps=nsteps)
+                flowrates.append(np.mean(sim.obs.flowrate))
+
+            plt.plot(carDensityList, flowrates, linestyle='-', label = f'Number of lanes =  {lane_idx + 1}')
+        plt.legend()
+        plt.xlabel(r'Car density, $\frac{N_{car}}{L}$')
+        plt.ylabel(r'Mean flow rate, $\frac{v_{tot}}{L}$')
+        plt.title(fr'Flow rate vs car density. Road length: $L= {self.roadLength} $')
+        plt.grid(True)
+        plt.show()
+
 
     def plotAvgFlowrate(
         self,
@@ -45,7 +78,7 @@ class Plotting:
             y = []
             for value in attrValues:
                 cars = Cars(
-                    numCars=int(value * self.roadLength),
+                    numCars=int(value * self.roadLength*self.numLanes),
                     roadLength=self.roadLength,
                     v0=self.v0,
                     numLanes=self.numLanes,
@@ -75,7 +108,7 @@ class Plotting:
 
     def getStatistics(
         self,
-        nsims: int = 20,
+        nsims: int = 10,
         valueRange: Sequence[float] = None,
         secondArg: str = None,
         secondArgVals: list[float] = None,
@@ -129,12 +162,39 @@ class Plotting:
         plt.legend()
         plt.show()
 
+    def plotFlowrate(self, numsteps_list=None):
+        if numsteps_list is None:
+            numsteps_list = [100 + 5*i for i in range(50)]
+        std_vals = []
+        cars = Cars(
+            numCars=self.numCars,
+            roadLength=self.roadLength,
+            v0=self.v0,
+            numLanes=self.numLanes,
+            laneSwitchAllowed=self.laneSwitchAllowed,
+        )
+        prop = MyPropagator(vmax=self.vmax, p=self.p)
+        sim = Simulation(cars=cars)
+        for numsteps in numsteps_list:
+            sim.reset(cars=cars)
+            std_vals.append(sim.getStdFlowrate(numsteps=numsteps, propagator=prop))
+        plt.figure(figsize=(8, 6))
+        plt.plot(numsteps_list, std_vals, linestyle="-")
+        plt.xlabel("Number of steps")
+        plt.ylabel("Deviation")
+        plt.title(f"Standard deviation in flowrate against number of steps")
+        plt.show()
+
+
+
+
 
 def main():
-    plotting = Plotting()
+    plotting = Plotting(roadLength=10)
     # plotting.plotAvgFlowrate()
-    plotting.getStatistics(secondArg="vmax", secondArgVals=[1, 3, 5])
-
+    # plotting.getStatistics(secondArg="vmax", secondArgVals=[1, 3, 5])
+    # plotting.plotFlowrate()
+    plotting.plotFlowrateLane(numLanes=5)
 
 if __name__ == "__main__":
     main()
