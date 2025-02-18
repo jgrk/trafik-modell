@@ -1,11 +1,30 @@
+import argparse
 from unittest import TestCase
 from traffic_template import *
 
-cars = Cars(numCars=10, roadLength=100, v0=1, numLanes=3)
+parser = argparse.ArgumentParser(description="Traffic Template Tester")
+parser.add_argument("--numCars", default=20, type=int)
+parser.add_argument("--roadLength", default=30, type=int)
+parser.add_argument("--v0", default=1, type=int)
+parser.add_argument("--numLanes", default=2, type=int)
+parser.add_argument("--vmax", default=2, type=int)
+parser.add_argument("--p", default=0.5, type=float)
+parser.add_argument("--numSteps", default=500, type=int)
+parser.add_argument("--laneSwitching", default=True, type=bool)
+# parser.add_argument("--switch", default=0, type=int)
+args = parser.parse_args()
+
+cars = Cars(
+    numCars=args.numCars, roadLength=args.roadLength, v0=args.v0, numLanes=args.numLanes,
+    laneSwitchAllowed=args.laneSwitching
+
+)
 sim = Simulation(cars=cars)
-prop = MyPropagator(vmax=5, p=0.2)
-# sim.run(propagator=prop)
+prop = MyPropagator(vmax=args.vmax, p=args.p)
+sim.run(propagator=prop, numsteps=args.numSteps)
+
 sim.run_animate(prop)
+# sim.plotAvgFlowrate(attrName='carDensity', attrValues = [i/10 for i in range(1, 11)], propagator=prop, numsteps=200 )
 
 
 class Test(TestCase):
@@ -26,7 +45,6 @@ class Test(TestCase):
         cars.first_cars[2] = cars.last_cars[2] = None
         for lane_idx in range(cars.numLanes):
             car = cars.last_cars[lane_idx]
-            # print(cars.laneSwitchTrue(car, car.lane + 1))
 
     def test_simulation_init(self):
         cars = Cars()
